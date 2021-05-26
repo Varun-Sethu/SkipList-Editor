@@ -52,6 +52,19 @@ func TestSearch(t *testing.T) {
 
 
 
+// TestInsert just tests the insertion of an element into the skip list
+// note: it assumes "search" is valid and working
+func TestInsert(t *testing.T) {
+	testDescriptor := &pieceDescriptor{editSize: 30, bufferStart: 10, bufferSource: changes}
+	testList.Insert(testDescriptor, 15)
+
+	if out, _ := testList.search(16); out.payload != testDescriptor {
+		t.Errorf("Insertion failed... \nexpected: %v\n got: %v\n", *testDescriptor, *out.payload)
+	}
+	fmt.Print(testList.visualiseList())
+}
+
+
 
 
 
@@ -106,7 +119,7 @@ func init() {
 	listTail.next.next.top = thirdListTail.next
 
 
-	fmt.Printf("Constructed Skip List")
+	fmt.Printf("Constructed Skip List\n")
 }
 
 

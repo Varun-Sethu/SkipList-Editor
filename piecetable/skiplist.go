@@ -1,5 +1,11 @@
 package piecetable
 
+import (
+	"math/rand"
+	"strconv"
+	"time"
+)
+
 /*
 	IMPLEMENTATION DETAILS:
 		- The skip list is implemented as a normal linked list of piece descriptors (at the bottom level)
@@ -38,9 +44,6 @@ func NewSkipList(descriptor *pieceDescriptor) *SkipList {
 		documentSize: descriptor.editSize,
 	}
 }
-
-
-
 // just allocate a new level and make its size the document size :)
 func (list *SkipList) newLevel() *entry {
 	var newLevel = &entry{
@@ -53,7 +56,6 @@ func (list *SkipList) newLevel() *entry {
 	list.topLevel = newLevel
 	return newLevel
 }
-
 
 
 // entry just represents some section of a partition
@@ -69,6 +71,31 @@ type entry struct {
 
 	// optional: pointer to payload data
 	payload *pieceDescriptor
+}
+
+
+
+
+
+
+// visualiseList returns a string representation of the skip list (mostly for debugging)
+func (list *SkipList) visualiseList() string {
+	// Start at the top level, scan across and go down
+	currentLevel := list.topLevel
+	curr := currentLevel
+	outBuffer := ""
+
+	for currentLevel != nil {
+		for curr != nil {
+			outBuffer += " " + strconv.Itoa(curr.size) + " "
+			curr = curr.next
+		}
+		outBuffer += "\n"
+		currentLevel = currentLevel.bottom
+		curr = currentLevel
+	}
+
+	return outBuffer
 }
 
 
@@ -106,15 +133,86 @@ func (list *SkipList) search(cursor int) (*entry, int) {
 }
 
 
+// Insert inserts a new PieceDescriptor into the skip list at a specific cursor
+func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
+
+	// locate the "interval" that currently contains our cursor
+	// also attain "the offset" into that interval (this is returned by the search function)
+	interval, cursor := list.search(cursor)
+
+	// two cases: insert at the end or split the interval in two and insert there
+	if cursor == 0 {
+		// insert at end
+		newAllocation := &entry{size: descriptor.editSize, prev: interval, next: interval.next, payload: descriptor}
+		interval.next = newAllocation
+		list.fixList(newAllocation, descriptor.editSize, false)
+	} else {
+		// split in two
+		newAllocation := &entry{size: descriptor.editSize, prev: interval, payload: descriptor}
+		intervalHalf := &entry{size: interval.size - cursor, prev: newAllocation, next: interval.next}
+		interval.next = newAllocation; newAllocation.next = intervalHalf
+		interval.size = cursor
+		list.fixList(newAllocation, descriptor.editSize, false)
+	}
+}
 
 
+// fixList performs two functions: given a specific entry and an offset it will correct all the interval sizes
+// for the parents of that entry, it will also deal with "the bubbling" to ensure we get a logarithmic average
+// case complexity; note: the offset can also be 0 :)
+// deleteMode indicates if we are fixing a list after a deletion... if this is the case then we dont do any bubbling
+func (list *SkipList) fixList(target *entry, offset int, deleteMode bool) {
+
+	rand.Seed(time.Now().UnixNano())
+
+	// repeatedly go backwards: whenever we "go up a level" we need to add the offset to the
+	// level we pop up to to correct the interval ranges, only bother if the offset is non zero though
+	if offset != 0 {
+		curr := target
+		for curr != nil {
+			if curr.top == nil {
+				curr = curr.prev
+			} else {
+				curr = curr.top
+				curr.size += offset
+			}
+		}
+		list.documentSize += offset
+	}
+
+	// now that the skip list interval values have been corrected, we now need to bubble up our value :)
+	if !deleteMode {
+		for rand.Intn(2) == 1 {
+			// propagate backwards until we find a suitable "entry" to climb up
+			curr := target
+			rInterval := 0
+			for curr.prev != nil && curr.top == nil {
+				curr = curr.prev
+				rInterval += curr.size
+			}
+
+			// two cases: curr.prev is nil meaning we need to create a new level for this node
+			// or curr.top isn't nil meaning its a normal insertion :)
+			var newAllocation *entry
+			if curr.top != nil { // normal insertion
+				curr = curr.top
+			} else {
+				// create a new level and allocate :)
+				curr = list.newLevel()
+			}
 
 
+			newAllocation = &entry{size: curr.size - rInterval, next: curr.next, prev: curr, bottom: target}
+			target.top = newAllocation
+			curr.next = newAllocation
+			curr.size = rInterval
+			// set it to the appropriate value and repeat :)
+			target = newAllocation
+		}
 
+	}
 
-
-
-
+}
 
 
 
