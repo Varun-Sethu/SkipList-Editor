@@ -1,10 +1,5 @@
 package piecetable
 
-import (
-	"math/rand"
-	"time"
-)
-
 /*
 	IMPLEMENTATION DETAILS:
 		- The skip list is implemented as a normal linked list of piece descriptors (at the bottom level)
@@ -18,224 +13,97 @@ import (
 	payload data representing the value of the partition as well as the size of the partition, if for the levels
 	of our Skip List we simply just describe arbitrary partitioning of the file them hopefully we get a decent complexity
 	for traversing that list
+
+	Fundamentally: the skip list is a layer of partitions each stacked on top of each other, layers of partitions
+					align to some degree
  */
 
-// TODO: make not ugly
-
-// type definitions
-// defines an entry descriptor, contains a partitioning number that indicates where this "split" occurs
-type entryDescriptor struct {
-	partitionSize uint
-
-	// next descriptor is the next descriptor in the linked list
-	// child descriptor is the child in the level beneath the descriptor's level
-	nextDescriptor  *entryDescriptor
-	prevDescriptor  *entryDescriptor
-	childDescriptor *entryDescriptor
-	parentDescriptor *entryDescriptor
-}
-
-// delete is a method that removes a entryDescriptor from a linked list of descriptors, also deletes any
-// descriptors above it recursively
-// TODO: implement deletion from the skiplist level
-func (descriptor *entryDescriptor) delete() {
-	// might segfault :); correction: will segfault
-	if descriptor.parentDescriptor != nil {
-		descriptor.parentDescriptor.delete()
-	}
-
-	descriptor.prevDescriptor.nextDescriptor = descriptor.nextDescriptor
-}
 
 
-// describes a level in the skipList
-type skipListLevel struct {
-	levelHead *entryDescriptor
-	// should be null
-	levelTail *entryDescriptor
-}
-
-// definition of a skipList structure
+// SkipList is the definition of a skipList structure
 type SkipList struct {
-	topLevel *skipListLevel
-	// at level 1: the index of the partition entry is the index of the pieceDescriptor
-	payloadData []pieceDescriptor
+	topLevel *entry
+	// the size of the document we are partitioning
+	documentSize 	int
 }
 
-
-// TODO: fix how data is tied to nodes within the skip list
-
-
-
-// NewSkipList allocates and returns a new skipList
-func NewSkipList(originalEdit pieceDescriptor) *SkipList {
-	// when we allocate a skipList it only has one level (the base level)
-	var partitionRepresentation entryDescriptor = entryDescriptor{
-		partitionSize:    originalEdit.editStart - originalEdit.editEnd,
-		nextDescriptor:   nil,
-		childDescriptor:  nil,
-		prevDescriptor:   nil,
-		parentDescriptor: nil,
-	}
-
+// NewSkipList takes a piece descriptor and constructs a skip list from it
+func NewSkipList(descriptor *pieceDescriptor) *SkipList {
 	return &SkipList{
-		topLevel: &skipListLevel{&partitionRepresentation, nil},
-		payloadData: []pieceDescriptor{originalEdit},
-	}
-}
-
-
-// searchSkipList returns the pieceDescriptor that contains a specified cursor
-// also returns the "modified" value of the cursor
-func (list *SkipList) searchSkipList(cursor uint) (*entryDescriptor, uint) {
-
-	// continuously iterate every node in the level of interest until we reach the base of the linked list
-	var currentPartition *entryDescriptor = list.topLevel.levelHead
-	for currentPartition.childDescriptor != nil {
-		for currentPartition != nil && cursor > currentPartition.partitionSize {
-			cursor -= currentPartition.partitionSize
-			currentPartition = currentPartition.nextDescriptor
-		}
-
-		// if the current partition is nil that means the requested cursor was out of bounds
-		if currentPartition == nil {
-			return nil, 0
-		}
-		currentPartition = currentPartition.childDescriptor
-	}
-
-
-
-	return currentPartition, cursor
-}
-
-
-// InsertDescriptor adds a new piece descriptor to the skip list at a specific cursor, partitioning is then handled
-// from there
-func (list *SkipList) InsertDescriptor(edit pieceDescriptor, cursor uint) error {
-
-	var currentPartition *entryDescriptor
-	currentPartition, cursor = list.searchSkipList(cursor)
-
-	// now that the "smallest partition" contain our cursor has been identified we need to deal with it accordingly...
-	// either: split the node into two or insert directly after
-	var insertAfter bool = currentPartition.nextDescriptor == nil ||
-							currentPartition.nextDescriptor.partitionSize == cursor
-	// the partitioning we are about to insert
-	var newPartitioning entryDescriptor = entryDescriptor{
-		prevDescriptor: currentPartition,
-		childDescriptor: nil,
-		parentDescriptor: nil,
-		nextDescriptor:  currentPartition.nextDescriptor,
-		partitionSize: edit.editStart - edit.editEnd,
-	}
-
-	// trivial :P
-	if insertAfter {
-		// allocate a new partition entry
-		currentPartition.nextDescriptor = &newPartitioning
-		list.bubbleUpPartition(&newPartitioning)
-	} else {
-		// we need to split the current partition into two and insert at the split
-		var subsequentPartitioning = entryDescriptor{
-			childDescriptor: nil,
-			parentDescriptor: nil,
-			nextDescriptor:  currentPartition.nextDescriptor,
-			partitionSize: currentPartition.partitionSize - cursor,
-		}
-		// split and insert
-		newPartitioning.nextDescriptor = &subsequentPartitioning
-		currentPartition.nextDescriptor = &newPartitioning
-		currentPartition.partitionSize = cursor
-
-		// bubble up values in the skip list
-		list.bubbleUpPartition(&newPartitioning)
-		list.bubbleUpPartition(&subsequentPartitioning)
-	}
-
-	return nil
-}
-
-
-
-// bubbleUpPartition essentially bubbles up the passed descriptor to higher levels in the skip list
-func (list *SkipList) bubbleUpPartition(descriptor *entryDescriptor) {
-
-	// seeding the generated based on the current system time
-	rand.Seed(time.Now().UnixNano())
-
-	for v := rand.Intn(1); v == 1;  {
-		// continuously go backwards, adding up the total size of the partition spanned by our piece descriptor
-		// and the descriptor "connected" to the partition above
-		var currentDescriptor *entryDescriptor = descriptor
-		var culledPartitionSize uint = 0
-		for currentDescriptor.parentDescriptor != nil {
-			currentDescriptor = currentDescriptor.prevDescriptor
-			culledPartitionSize += currentDescriptor.partitionSize
-		}
-		currentDescriptor = currentDescriptor.parentDescriptor
-
-		// two situations: the current descriptor is null indicating a new level needs to be added
-		// or its not null in which we just add the new partitioning after it
-		var newPartitionEntry entryDescriptor = entryDescriptor{
-			partitionSize:    nil,
-			nextDescriptor:   nil,
-			prevDescriptor:   nil,
-			childDescriptor:  descriptor,
-			parentDescriptor: nil,
-		}
-
-		if currentDescriptor != nil {
-			newPartitionEntry.partitionSize = currentDescriptor.partitionSize - culledPartitionSize
-			newPartitionEntry.prevDescriptor = currentDescriptor
-			newPartitionEntry.nextDescriptor = currentDescriptor.nextDescriptor
-			currentDescriptor.partitionSize = culledPartitionSize
-			currentDescriptor.nextDescriptor = &newPartitionEntry
-			descriptor = &newPartitionEntry
-		} else {
-			// a new level in the piece table needs to be constructed
-			var newLevel *skipListLevel = &skipListLevel{
-				levelHead: &newPartitionEntry,
-				levelTail: nil,
-			}
-			list.topLevel = newLevel
-		}
+		topLevel: &entry{
+			size: descriptor.editSize,
+			top: nil, bottom: nil, next: nil, prev: nil,
+			payload: descriptor,
+		},
+		documentSize: descriptor.editSize,
 	}
 }
 
 
 
-// DeleteDescriptors removes all the entry descriptors between cursorStart and cursorEnd
-// also splits up entry descriptors contained within this range
-func (list *SkipList) DeleteDescriptors(cursorStart, cursorEnd uint) {
-
-	// obtain the two ranges as well as the modified cursors
-	lowRange, cursorStart  := list.searchSkipList(cursorStart)
-	highRange, cursorEnd := list.searchSkipList(cursorEnd)
-
-	// shave off the edges of low and high range
-	// deal with cursorStart first
-	lowRange.partitionSize = cursorStart
-	lowRange = lowRange.nextDescriptor
-	// now shave off the highRange and cursorEnd
-	highRange.partitionSize -= cursorEnd
-	highRange = highRange.prevDescriptor
-
-
-	// iterate over the linked list of entry descriptors
-	for lowRange != highRange {
-		var nextLow = lowRange.nextDescriptor
-		lowRange.delete()
-		lowRange = nextLow
+// just allocate a new level and make its size the document size :)
+func (list *SkipList) newLevel() *entry {
+	var newLevel = &entry{
+		size: list.documentSize,
+		top: nil,
+		bottom: list.topLevel,
+		next: nil,
+		prev: nil,
 	}
-
+	list.topLevel = newLevel
+	return newLevel
 }
 
 
 
+// entry just represents some section of a partition
+type entry struct {
+	// size of the entry
+	size 	int
+
+	// pointer data
+	top 	*entry
+	bottom 	*entry
+	next 	*entry
+	prev 	*entry
+
+	// optional: pointer to payload data
+	payload *pieceDescriptor
+}
 
 
+// search finds the smallest interval in the skip list containing our cursor
+// searches all partitions
+// returns the smallest entry and an integer with the "new offset"
+func (list *SkipList) search(cursor int) (*entry, int) {
 
+	// just iterate the list until we find what we are looking for :)
+	curr := list.topLevel
+	prev := list.topLevel
+	accessCount := 0
+
+	for curr != nil {
+		for curr != nil && cursor > curr.size {
+			cursor -= curr.size
+			prev = curr
+			curr = curr.next
+			accessCount += 1
+		}
+		// if the cursor cant progress any further in this level of the list just hop down
+		prev = curr
+		if curr != nil {
+			curr = curr.bottom
+		}
+	}
+
+	// upon termination there are 2 distinct cases:
+	// both curr and prev are nil indicating the cursor is out of bounds
+	// or just a normal situation where we return prev
+	if prev == nil {
+		return nil, 0
+	}
+	return prev, cursor
+}
 
 
 

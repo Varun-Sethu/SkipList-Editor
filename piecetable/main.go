@@ -6,10 +6,18 @@ package piecetable
 // The piece table structure
 // describes an edit made on the physical text buffer
 type pieceDescriptor struct {
-	editType 	uint8
-	editStart 	uint
-	editEnd 	uint
+	bufferSource bool
+
+	bufferStart int
+	editSize	int
 }
-// edit types
-const insertion uint8 = 1
-const deletion  uint8 = 0
+const original bool = false
+const changes  bool = true
+
+// The actual PieceTable structure :)
+type PieceTable struct {
+	originalBuffer 	[]byte
+	editBuffer		[]byte
+
+	changesTable   *SkipList
+}
