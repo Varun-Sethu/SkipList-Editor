@@ -65,6 +65,13 @@ func TestInsert(t *testing.T) {
 }
 
 
+// TestDelete just tests the deletion function for the skiplist
+func TestDelete(t *testing.T) {
+	fmt.Print(testList.visualiseList(), "\n")
+	testList.DeleteRange(0, 130)
+	fmt.Print(testList.visualiseList(), "\n")
+}
+
 
 
 
