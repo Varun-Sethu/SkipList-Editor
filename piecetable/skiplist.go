@@ -53,6 +53,7 @@ func (list *SkipList) newLevel() *entry {
 		next: nil,
 		prev: nil,
 	}
+	list.topLevel.top = newLevel
 	list.topLevel = newLevel
 	return newLevel
 }
@@ -140,7 +141,7 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 	interval, cursor := list.search(cursor)
 
 	// two cases: insert at the end or split the interval in two and insert there
-	if cursor == 0 {
+	if cursor == interval.size {
 		// insert at end
 		newAllocation := &entry{size: descriptor.editSize, prev: interval, next: interval.next, payload: descriptor}
 		interval.next = newAllocation
