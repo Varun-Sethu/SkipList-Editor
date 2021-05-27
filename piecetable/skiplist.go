@@ -144,14 +144,22 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 		// insert at end
 		newAllocation := &entry{size: descriptor.editSize, prev: interval, next: interval.next, payload: descriptor}
 		interval.next = newAllocation
-		list.fixList(newAllocation, descriptor.editSize, false)
+		list.fixList(newAllocation, descriptor.editSize)
+		list.probabilityInsert(newAllocation)
 	} else {
 		// split in two
 		newAllocation := &entry{size: descriptor.editSize, prev: interval, payload: descriptor}
-		intervalHalf := &entry{size: interval.size - cursor, prev: newAllocation, next: interval.next}
+		intervalHalf := &entry{size: interval.size - cursor, prev: newAllocation, next: interval.next,
+			payload: &pieceDescriptor{
+				bufferSource: interval.payload.bufferSource,
+				bufferStart: cursor,
+				editSize:  interval.size - cursor,
+			}}
 		interval.next = newAllocation; newAllocation.next = intervalHalf
 		interval.size = cursor
-		list.fixList(newAllocation, descriptor.editSize, false)
+		interval.payload.editSize = cursor
+		list.fixList(newAllocation, descriptor.editSize)
+		list.probabilityInsert(newAllocation)
 	}
 }
 
@@ -160,9 +168,8 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 // for the parents of that entry, it will also deal with "the bubbling" to ensure we get a logarithmic average
 // case complexity; note: the offset can also be 0 :)
 // deleteMode indicates if we are fixing a list after a deletion... if this is the case then we dont do any bubbling
-func (list *SkipList) fixList(target *entry, offset int, deleteMode bool) {
+func (list *SkipList) fixList(target *entry, offset int) {
 
-	rand.Seed(time.Now().UnixNano())
 
 	// repeatedly go backwards: whenever we "go up a level" we need to add the offset to the
 	// level we pop up to to correct the interval ranges, only bother if the offset is non zero though
@@ -179,38 +186,40 @@ func (list *SkipList) fixList(target *entry, offset int, deleteMode bool) {
 		list.documentSize += offset
 	}
 
+}
+
+// probabilityInsert probabilistically inserts an entry into the skip list (bubbling it up)
+func (list *SkipList) probabilityInsert(target *entry) {
+	rand.Seed(time.Now().UnixNano())
+
 
 	// now that the skip list interval values have been corrected, we now need to bubble up our value :)
-	if !deleteMode {
-		for rand.Intn(2) == 1 {
-			// propagate backwards until we find a suitable "entry" to climb up
-			curr := target
-			rInterval := 0
-			for curr.prev != nil && curr.top == nil {
-				curr = curr.prev
-				rInterval += curr.size
-			}
-
-			// two cases: curr.prev is nil meaning we need to create a new level for this node
-			// or curr.top isn't nil meaning its a normal insertion :)
-			var newAllocation *entry
-			if curr.top != nil { // normal insertion
-				curr = curr.top
-			} else {
-				// create a new level and allocate :)
-				curr = list.newLevel()
-			}
-
-			newAllocation = &entry{size: curr.size - rInterval, next: curr.next, prev: curr, bottom: target}
-			target.top = newAllocation
-			curr.next = newAllocation
-			curr.size = rInterval
-			// set it to the appropriate value and repeat :)
-			target = newAllocation
+	for rand.Intn(2) == 1 {
+		// propagate backwards until we find a suitable "entry" to climb up
+		curr := target
+		rInterval := 0
+		for curr.prev != nil && curr.top == nil {
+			curr = curr.prev
+			rInterval += curr.size
 		}
 
-	}
+		// two cases: curr.prev is nil meaning we need to create a new level for this node
+		// or curr.top isn't nil meaning its a normal insertion :)
+		var newAllocation *entry
+		if curr.top != nil { // normal insertion
+			curr = curr.top
+		} else {
+			// create a new level and allocate :)
+			curr = list.newLevel()
+		}
 
+		newAllocation = &entry{size: curr.size - rInterval, next: curr.next, prev: curr, bottom: target}
+		target.top = newAllocation
+		curr.next = newAllocation
+		curr.size = rInterval
+		// set it to the appropriate value and repeat :)
+		target = newAllocation
+	}
 }
 
 
@@ -219,7 +228,6 @@ func (list *SkipList) DeleteRange(start, end int) {
 	// locate the two entries where the cursors belong
 	entryS, cStart := list.search(start)
 	entryE, cEnd   := list.search(end)
-
 
 	// since these return entries our cursors are in there are 2 cases: the two cursors span the same entry
 	// or the span a set of entries
@@ -235,6 +243,7 @@ func (list *SkipList) DeleteRange(start, end int) {
 		// to deal with partial span of an entry we simply just update the cursor values for that entry
 		if cStart > 0 {
 			entryS.size -= entryS.size - cStart
+			entryS.payload.editSize = entryS.size
 			entryS = entryS.next
 		}
 
@@ -247,13 +256,18 @@ func (list *SkipList) DeleteRange(start, end int) {
 			curr = cop
 		}
 	// case where it spans a single entry
-	} else if cStart != 0 {
-		// 2 situations:
+	} else {
+		// 3 situations:
 		// the requested deletion range spans to the end of the range
 		// or the requested deletion range is in between a range: we deal with them independently
 		if cEnd == entryE.size { // spans to end
 			// we just need to update the size of entryS to accommodate for this :)
 			entryS.size = cStart
+			entryS.payload.editSize = cStart
+			deleteEntry = false
+		} else if cStart == 0 { // spans from start
+			entryS.size = cEnd
+			entryS.payload.bufferStart = cEnd
 			deleteEntry = false
 		} else { // spans across
 			// just split entryE into two separate pieces
@@ -267,7 +281,7 @@ func (list *SkipList) DeleteRange(start, end int) {
 		}
 	}
 
-	list.fixList(entryS, -(end - start), true)
+	list.fixList(entryS, -(end - start))
 	// I'm really sorry... I generally hate flags but yeah
 	if deleteEntry {
 		list.deleteEntry(entryS)
