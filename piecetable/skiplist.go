@@ -139,6 +139,7 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 	// locate the "interval" that currently contains our cursor
 	// also attain "the offset" into that interval (this is returned by the search function)
 	interval, cursor := list.search(cursor)
+	if interval == nil {return}
 
 	// two cases: insert at the end or split the interval in two and insert there
 	if cursor == interval.size {
