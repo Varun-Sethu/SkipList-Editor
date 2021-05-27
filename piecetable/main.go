@@ -1,5 +1,7 @@
 package piecetable
 
+import "bytes"
+
 // The piece table structure
 // describes an edit made on the physical text buffer
 type pieceDescriptor struct {
@@ -13,8 +15,8 @@ const changes  bool = true
 
 // The actual PieceTable structure :)
 type PieceTable struct {
-	originalBuffer 	[]byte
-	editBuffer		[]byte
+	originalBuffer 	*bytes.Buffer
+	editBuffer		*bytes.Buffer
 
 	changesTable   *SkipList
 }
@@ -28,8 +30,8 @@ func NewPieceTable(originalBuf string) *PieceTable {
 						bufferSource: original, editSize: len(originalBuf)}
 
 	return &PieceTable{
-		originalBuffer: []byte(originalBuf),
-		editBuffer: []byte{},
+		originalBuffer: bytes.NewBuffer([]byte(originalBuf)),
+		editBuffer: bytes.NewBuffer([]byte{}),
 		changesTable: NewSkipList(initialDescriptor),
 	}
 }
@@ -38,8 +40,8 @@ func NewPieceTable(originalBuf string) *PieceTable {
 // Insert just adds a chunk of text to the piece table at the specified cursor
 func (table *PieceTable) Insert(addition string, cursor int) {
 	newDescriptor := &pieceDescriptor{bufferSource: changes,
-						bufferStart: len(table.editBuffer), editSize: len(addition)}
-	table.editBuffer = append(table.editBuffer, []byte(addition)...)
+						bufferStart: table.editBuffer.Len(), editSize: len(addition)}
+	table.editBuffer.WriteString(addition)
 	table.changesTable.Insert(newDescriptor, cursor)
 }
 
@@ -66,9 +68,9 @@ func (table *PieceTable) Stringify() string {
 		s := curr.payload.bufferStart
 		e := s + curr.payload.editSize
 		if curr.payload.bufferSource == original {
-			output += string(table.originalBuffer[s:e])
+			output += string(table.originalBuffer.Bytes()[s:e])
 		} else {
-			output += string(table.editBuffer[s:e])
+			output += string(table.editBuffer.Bytes()[s:e])
 		}
 		curr = curr.next
 	}

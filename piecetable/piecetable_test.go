@@ -23,7 +23,7 @@ func TestPieceTableInsertion(t *testing.T) {
 
 // BenchmarkPieceTableInsert tests the piece table on how quickly it can insert
 func BenchmarkPieceTableInsert(b *testing.B) {
-	for _, size := range []int{10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120} {
+	for _, size := range []int{1, 10, 100, 1000, 10000, 100000} {
 		benchmarkPieceTableInsert(b, size)
 	}
 }
