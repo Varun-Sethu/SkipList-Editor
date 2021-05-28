@@ -25,5 +25,17 @@ finally, on the bottom row we have the entries which represent all the edits mad
       where subtracting will lead a negative number, we then go down instead (like a normal skip list search)
    - This leads to a log n lookup time in the average case.
 
+### Cursors and editing
+If you do ever use this just note that cursors indicate the start of a character; for example consider the following sentence:
+```"hello world"```
+If we append "jamie says: " at index 0 then we get:
+```jamie says: hello world```
+and not:
+```hjamie says: ello world```
+This is consistent everywhere even for range... for example the range 0->3 of "hello world" is: "hel" not "hell" :)
+
+### Benchmarking
+You can run the benchmarks yourself and verify that the skip list performs insertions in roughly O(log n) time in the average case. 
+
 ## TODO:
  - [ ] When deleting over a span sometimes the skip list bugs out if there have been too many previous insertions
