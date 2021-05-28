@@ -28,12 +28,11 @@ func TestSearch(t *testing.T) {
 	// offsets of this base will be used for verification
 
 	// tests defines a map of cursors and the size of the appropriate interval they belong to (smallest interval)
-	tests := map[int]*entry{
+	tests := map[uint]*entry{
 		89: payloadBase.next.next,
 		25: payloadBase,
 		130: payloadBase.next.next.next.next.next.next,
 		10000: nil,
-		-1: payloadBase,
 		95: payloadBase.next.next.next,
 		129: payloadBase.next.next.next.next.next.next,
 	}
@@ -41,7 +40,7 @@ func TestSearch(t *testing.T) {
 	// for each test just assert that the two corresponding values in the map are the same
 	// also assert that this is the smallest interval (no child pointer)
 	for cursor, expectedInterval := range tests {
-		containingInterval, _ := testList.search(cursor)
+		containingInterval, _ := testList.search(cursor, 0)
 
 		if containingInterval != expectedInterval {
 			t.Errorf("Wrong interval... Expected: %p got %p", expectedInterval, containingInterval)
@@ -58,7 +57,7 @@ func TestInsert(t *testing.T) {
 	testDescriptor := &pieceDescriptor{editSize: 30, bufferStart: 10, bufferSource: changes}
 	testList.Insert(testDescriptor, 15)
 
-	if out, _ := testList.search(16); out.payload != testDescriptor {
+	if out, _ := testList.search(16, 0); out.payload != testDescriptor {
 		t.Errorf("Insertion failed... \nexpected: %v\n got: %v\n", *testDescriptor, *out.payload)
 	}
 	fmt.Print(testList.visualiseList())
@@ -89,7 +88,7 @@ func init() {
 	var layerTwoConnections = []*entry{listTail}
 
 	// the values we are inserting in the first layer
-	layerOne := []int{30, 50, 10, 20, 5, 10, 5}
+	layerOne := []uint{30, 50, 10, 20, 5, 10, 5}
 	for i, val := range layerOne[1:] {
 		listTail.next = &entry{size: val, next: nil, top: nil, bottom: nil, prev: listTail, payload: nil}
 		testList.documentSize += val

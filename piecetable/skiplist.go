@@ -1,6 +1,7 @@
 package piecetable
 
 import (
+	"math/bits"
 	"math/rand"
 	"strconv"
 	"time"
@@ -24,17 +25,23 @@ import (
 					align to some degree
  */
 
+// constants involved with level generation
+const (
+	maxLevel = 25
+)
+
 
 
 // SkipList is the definition of a skipList structure
 type SkipList struct {
 	topLevel *entry
 	// the size of the document we are partitioning
-	documentSize 	int
+	documentSize 	uint
 }
 
 // NewSkipList takes a piece descriptor and constructs a skip list from it
 func NewSkipList(descriptor *pieceDescriptor) *SkipList {
+	rand.Seed(time.Now().UnixNano())
 	return &SkipList{
 		topLevel: &entry{
 			size: descriptor.editSize,
@@ -62,7 +69,7 @@ func (list *SkipList) newLevel() *entry {
 // entry just represents some section of a partition
 type entry struct {
 	// size of the entry
-	size 	int
+	size 	uint
 
 	// pointer data
 	top 	*entry
@@ -87,7 +94,7 @@ func (list *SkipList) visualiseList() string {
 
 	for currentLevel != nil {
 		for curr != nil {
-			outBuffer += " " + strconv.Itoa(curr.size) + " "
+			outBuffer += " " + strconv.FormatUint(uint64(curr.size), 10) + " "
 			curr = curr.next
 		}
 		outBuffer += "\n"
@@ -102,23 +109,27 @@ func (list *SkipList) visualiseList() string {
 // search finds the smallest interval in the skip list containing our cursor
 // searches all partitions
 // returns the smallest entry and an integer with the "new offset"
-func (list *SkipList) search(cursor int) (*entry, int) {
+// to speed up operations search also supports an "offset" value that adds an offset every time it goes down a node
+// essentially correcting an insertion while finding where to insert
+func (list *SkipList) search(cursor uint, offset uint) (*entry, uint) {
 
 	// just iterate the list until we find what we are looking for :)
 	curr := list.topLevel
 	prev := list.topLevel
-	accessCount := 0
 
 	for curr != nil {
-		for curr != nil && cursor > curr.size {
+		for curr != nil && cursor >= curr.size {
 			cursor -= curr.size
+
 			prev = curr
 			curr = curr.next
-			accessCount += 1
 		}
 		// if the cursor cant progress any further in this level of the list just hop down
 		prev = curr
 		if curr != nil {
+			if curr.bottom != nil {
+				curr.size += offset
+			}
 			curr = curr.bottom
 		}
 	}
@@ -134,35 +145,68 @@ func (list *SkipList) search(cursor int) (*entry, int) {
 
 
 // Insert inserts a new PieceDescriptor into the skip list at a specific cursor
-func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
-
+func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor uint) {
 	// locate the "interval" that currently contains our cursor
 	// also attain "the offset" into that interval (this is returned by the search function)
-	interval, cursor := list.search(cursor)
-	if interval == nil {return}
+	interval, cursor := list.search(cursor, descriptor.editSize)
 
-	// two cases: insert at the end or split the interval in two and insert there
-	if cursor == interval.size {
-		// insert at end
-		newAllocation := &entry{size: descriptor.editSize, prev: interval, next: interval.next, payload: descriptor}
-		interval.next = newAllocation
-		list.fixList(newAllocation, descriptor.editSize)
-		list.probabilityInsert(newAllocation)
-	} else {
-		// split in two
-		newAllocation := &entry{size: descriptor.editSize, prev: interval, payload: descriptor}
-		intervalHalf := &entry{size: interval.size - cursor, prev: newAllocation, next: interval.next,
-			payload: &pieceDescriptor{
-				bufferSource: interval.payload.bufferSource,
-				bufferStart: cursor,
-				editSize:  interval.size - cursor,
-			}}
-		interval.next = newAllocation; newAllocation.next = intervalHalf
-		interval.size = cursor
-		interval.payload.editSize = cursor
-		list.fixList(newAllocation, descriptor.editSize)
-		list.probabilityInsert(newAllocation)
+	// cases:
+	// if the cursor is 0: insert in front of interval
+	// if the cursor is interval.size - 1 then we insert immediately after interval
+	// otherwise: we split interval into two pieces and insert accordingly
+	// the new entry we are creating
+	var newEntry *entry
+	// adding a layer is conditional... we only perform it if we inserted a value AFTER internal (to make life a little easy)
+	var addLayer bool = true
+
+	switch cursor {
+		case 0:
+			newEntry = &entry{size: descriptor.editSize, next: interval, prev: interval.prev, top: interval.top,
+						payload: descriptor}
+			// if the interval has a parent just "disown?" that parent and make the newEntry the new child
+			// we only inherit interval's parent if we insert in front of it :)
+			if interval.top != nil { interval.top.bottom = newEntry; interval.top = nil
+			} else if interval.prev == nil { list.topLevel = newEntry }
+
+			// if interval follows a previous entry then just set its "next" entry to newEntry
+			if interval.prev != nil { interval.prev.next = newEntry }
+			interval.prev = newEntry
+			addLayer = false
+
+			break
+		case interval.size - 1:
+			newEntry = &entry{size: descriptor.editSize, next: interval.next, prev: interval, top: nil,
+							payload: descriptor}
+			// if interval actually has a next value update its information
+			if interval.next != nil {
+				interval.next.prev = newEntry
+			}
+			interval.next = newEntry
+
+			break
+		default:
+			newEntry = &entry{size: descriptor.editSize, next: nil, prev: interval, top: nil,
+							payload: descriptor}
+			// split in two: shrink interval and allocate a new entry to follow "newEntry"
+			intervalSecondHalf := &entry{size: interval.payload.editSize - cursor, next: interval.next, prev: newEntry, top: nil,
+										payload: &pieceDescriptor{bufferSource: interval.payload.bufferSource,
+											bufferStart: interval.payload.bufferStart + cursor, editSize: interval.size - cursor}}
+			newEntry.next = intervalSecondHalf
+			if interval.next != nil {
+				interval.next.prev = intervalSecondHalf
+			}
+			interval.next = newEntry
+			interval.size = cursor; interval.payload.editSize = cursor
+
+			break
 	}
+
+	// correct the list by adding layers and fixing weights
+	list.documentSize += descriptor.editSize
+	if addLayer {
+		list.probabilityInsert(newEntry)
+	}
+
 }
 
 
@@ -170,8 +214,7 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 // for the parents of that entry, it will also deal with "the bubbling" to ensure we get a logarithmic average
 // case complexity; note: the offset can also be 0 :)
 // deleteMode indicates if we are fixing a list after a deletion... if this is the case then we dont do any bubbling
-func (list *SkipList) fixList(target *entry, offset int) {
-
+func (list *SkipList) fixList(target *entry, offset uint) {
 
 	// repeatedly go backwards: whenever we "go up a level" we need to add the offset to the
 	// level we pop up to to correct the interval ranges, only bother if the offset is non zero though
@@ -190,46 +233,65 @@ func (list *SkipList) fixList(target *entry, offset int) {
 
 }
 
+
+// randomLevel prior to the insertion of an entry into the skip list randomLevel will generate the height of that entry
+// within the skip list: this seems to perform better than repeatedly generating random numbers (should only call rand once)
+func (list *SkipList) randomLevel() uint {
+	// minimises calls to rand: https://ticki.github.io/blog/skip-lists-done-right/
+	var levels uint = maxLevel
+	var x uint64 = rand.Uint64() & ((1 << (maxLevel-1)) - 1)
+	var firstSet uint = uint(bits.TrailingZeros64(x))
+
+	// return based on the values
+	if firstSet <= maxLevel {
+		levels = firstSet
+	}
+	return levels
+}
+
+
 // probabilityInsert probabilistically inserts an entry into the skip list (bubbling it up)
 func (list *SkipList) probabilityInsert(target *entry) {
-	rand.Seed(time.Now().UnixNano())
 
+	// randomly generate the level of this node prior to "upgrading"
+	nodeLevel := list.randomLevel()
 
-	// now that the skip list interval values have been corrected, we now need to bubble up our value :)
-	for rand.Intn(2) == 1 {
-		// propagate backwards until we find a suitable "entry" to climb up
+	// continuously create new levels in our skip list until we reach the desired node level
+	var i uint = 0
+	for ; i < nodeLevel; i++ {
+		// The core idea is: keep going backwards until we find a node that we can climb up
 		curr := target
-		rInterval := 0
+		var spanningRange uint = 0
 		for curr.prev != nil && curr.top == nil {
 			curr = curr.prev
-			rInterval += curr.size
+			spanningRange += curr.size
 		}
+		curr = curr.top
 
-		// two cases: curr.prev is nil meaning we need to create a new level for this node
-		// or curr.top isn't nil meaning its a normal insertion :)
-		var newAllocation *entry
-		if curr.top != nil { // normal insertion
-			curr = curr.top
-		} else {
-			// create a new level and allocate :)
-			curr = list.newLevel()
-		}
+		// now that we have found it there are two cases: it has no parent indicating we need to allocate a new level
+		// or we insert directly after it
+		if curr == nil { curr = list.newLevel() }
 
-		newAllocation = &entry{size: curr.size - rInterval, next: curr.next, prev: curr, bottom: target}
-		target.top = newAllocation
+		// finally insert our new allocation node directly after curr
+		newAllocation := &entry{prev: curr, top: nil,
+							bottom: target, next: curr.next}
+		if curr.next != nil { curr.next.prev = newAllocation }
 		curr.next = newAllocation
-		curr.size = rInterval
-		// set it to the appropriate value and repeat :)
+		target.top = newAllocation
+		// just correct the sizes of new allocation and curr
+		newAllocation.size = curr.size - spanningRange
+		curr.size = spanningRange
 		target = newAllocation
 	}
+
 }
 
 
 // DeleteRange takes two cursors and deletes all values between those cursors
-func (list *SkipList) DeleteRange(start, end int) {
+func (list *SkipList) DeleteRange(start, end uint) {
 	// locate the two entries where the cursors belong
-	entryS, cStart := list.search(start)
-	entryE, cEnd   := list.search(end)
+	entryS, cStart := list.search(start, 0)
+	entryE, cEnd   := list.search(end, 0)
 
 	// since these return entries our cursors are in there are 2 cases: the two cursors span the same entry
 	// or the span a set of entries

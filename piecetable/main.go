@@ -7,8 +7,8 @@ import "bytes"
 type pieceDescriptor struct {
 	bufferSource bool
 
-	bufferStart int
-	editSize	int
+	bufferStart uint
+	editSize	uint
 }
 const original bool = false
 const changes  bool = true
@@ -27,7 +27,7 @@ type PieceTable struct {
 // NewPieceTable returns a new PieceTable implementation
 func NewPieceTable(originalBuf string) *PieceTable {
 	initialDescriptor := &pieceDescriptor{bufferStart: 0,
-						bufferSource: original, editSize: len(originalBuf)}
+						bufferSource: original, editSize: uint(len(originalBuf))}
 
 	return &PieceTable{
 		originalBuffer: bytes.NewBuffer([]byte(originalBuf)),
@@ -38,16 +38,16 @@ func NewPieceTable(originalBuf string) *PieceTable {
 
 
 // Insert just adds a chunk of text to the piece table at the specified cursor
-func (table *PieceTable) Insert(addition string, cursor int) {
+func (table *PieceTable) Insert(addition string, cursor uint) {
 	newDescriptor := &pieceDescriptor{bufferSource: changes,
-						bufferStart: table.editBuffer.Len(), editSize: len(addition)}
+						bufferStart: uint(table.editBuffer.Len()), editSize: uint(len(addition))}
 	table.editBuffer.WriteString(addition)
 	table.changesTable.Insert(newDescriptor, cursor)
 }
 
 
 // DeleteRange just deletes a range of words from the piece table
-func (table *PieceTable) DeleteRange(start, end int) {
+func (table *PieceTable) DeleteRange(start, end uint) {
 	table.changesTable.DeleteRange(start - 1, end)
 }
 
@@ -65,7 +65,7 @@ func (table *PieceTable) Stringify() string {
 	// iterate and print
 	var output string = ""
 	for curr != nil {
-		s := curr.payload.bufferStart
+		s := uint(curr.payload.bufferStart)
 		e := s + curr.payload.editSize
 		if curr.payload.bufferSource == original {
 			output += string(table.originalBuffer.Bytes()[s:e])
