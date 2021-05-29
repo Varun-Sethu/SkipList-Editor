@@ -12,14 +12,14 @@ import (
 // TestPieceTableInsertion tests the insertion function
 func TestPieceTableInsertion(t *testing.T) {
 	table := NewPieceTable("hello world")
-	table.Insert("abcd", 1)
+	table.Insert(" there", 100)
 	table.Insert("jamie says: ", 0)
-	table.Insert("abcd", 10)
-	table.Insert("abcd", 11)
-	table.Insert("abcd", 16)
-	table.Insert("abcd", 30)
-	table.Insert("abcd", 7)
-	table.Insert("abcd", 39)
+	table.Insert(" is there pasta? ", 2)
+
+	fmt.Print("\n", table.changesTable.visualiseList(), "\n")
+	fmt.Printf("%s\n\n", table.Stringify())
+
+	table.DeleteRange(4, 32)
 
 	fmt.Print("\n", table.changesTable.visualiseList(), "\n")
 	fmt.Printf("%s\n\n", table.Stringify())
@@ -50,7 +50,7 @@ func benchmarkPieceTableInsert(b *testing.B, size int) {
 
 			for j := 0; j < size; j++ {
 				b.StopTimer()
-				cursor := uint(rand.Intn(int(table.changesTable.documentSize - 1)) + 1)
+				cursor := rand.Intn(int(table.changesTable.documentSize - 1)) + 1
 				b.StartTimer()
 				table.Insert(text, cursor)
 			}

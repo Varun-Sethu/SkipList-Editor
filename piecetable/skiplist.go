@@ -1,6 +1,7 @@
 package piecetable
 
 import (
+	"fmt"
 	"math/bits"
 	"math/rand"
 	"strconv"
@@ -36,7 +37,7 @@ const (
 type SkipList struct {
 	topLevel *entry
 	// the size of the document we are partitioning
-	documentSize 	uint
+	documentSize 	int
 }
 
 // NewSkipList takes a piece descriptor and constructs a skip list from it
@@ -69,7 +70,7 @@ func (list *SkipList) newLevel() *entry {
 // entry just represents some section of a partition
 type entry struct {
 	// size of the entry
-	size 	uint
+	size 	int
 
 	// pointer data
 	top 	*entry
@@ -111,20 +112,24 @@ func (list *SkipList) visualiseList() string {
 // returns the smallest entry and an integer with the "new offset"
 // to speed up operations search also supports an "offset" value that adds an offset every time it goes down a node
 // essentially correcting an insertion while finding where to insert
-func (list *SkipList) search(cursor uint, offset uint) (*entry, uint) {
+func (list *SkipList) search(cursor int, offset int) (*entry, int) {
 
 	// just iterate the list until we find what we are looking for :)
 	curr := list.topLevel
 	prev := list.topLevel
+	prevPrev := prev
 
 	for curr != nil {
 		for curr != nil && cursor >= curr.size {
 			cursor -= curr.size
 
+			prevPrev = prev
 			prev = curr
 			curr = curr.next
+
 		}
 		// if the cursor cant progress any further in this level of the list just hop down
+		prevPrev = prev
 		prev = curr
 		if curr != nil {
 			if curr.bottom != nil {
@@ -135,17 +140,18 @@ func (list *SkipList) search(cursor uint, offset uint) (*entry, uint) {
 	}
 
 	// upon termination there are 2 distinct cases:
-	// both curr and prev are nil indicating the cursor is out of bounds
+	// if curr is nil indicating the cursor is out of bounds, to suppport editing past document bounds we simply
+	// return the edge node in the document
 	// or just a normal situation where we return prev
 	if prev == nil {
-		return nil, 0
+		return prevPrev, prevPrev.size
 	}
 	return prev, cursor
 }
 
 
 // Insert inserts a new PieceDescriptor into the skip list at a specific cursor
-func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor uint) {
+func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor int) {
 	// locate the "interval" that currently contains our cursor
 	// also attain "the offset" into that interval (this is returned by the search function)
 	interval, cursor := list.search(cursor, descriptor.editSize)
@@ -174,7 +180,7 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor uint) {
 			addLayer = false
 
 			break
-		case interval.size - 1:
+		case interval.size:
 			newEntry = &entry{size: descriptor.editSize, next: interval.next, prev: interval, top: nil,
 							payload: descriptor}
 			// if interval actually has a next value update its information
@@ -213,23 +219,20 @@ func (list *SkipList) Insert(descriptor *pieceDescriptor, cursor uint) {
 // fixList performs two functions: given a specific entry and an offset it will correct all the interval sizes
 // for the parents of that entry, it will also deal with "the bubbling" to ensure we get a logarithmic average
 // case complexity; note: the offset can also be 0 :)
-// deleteMode indicates if we are fixing a list after a deletion... if this is the case then we dont do any bubbling
-func (list *SkipList) fixList(target *entry, offset uint) {
+func (list *SkipList) fixList(target *entry, offset int) {
 
 	// repeatedly go backwards: whenever we "go up a level" we need to add the offset to the
-	// level we pop up to to correct the interval ranges, only bother if the offset is non zero though
-	if offset != 0 {
-		curr := target
-		for curr != nil {
-			if curr.top == nil {
-				curr = curr.prev
-			} else {
-				curr = curr.top
-				curr.size += offset
-			}
+	// level we pop up to to correct the interval ranges
+	curr := target
+	for curr != nil {
+		if curr.top == nil {
+			curr = curr.prev
+		} else {
+			curr = curr.top
+			curr.size += offset
 		}
-		list.documentSize += offset
 	}
+	list.documentSize += offset
 
 }
 
@@ -257,11 +260,10 @@ func (list *SkipList) probabilityInsert(target *entry) {
 	nodeLevel := list.randomLevel()
 
 	// continuously create new levels in our skip list until we reach the desired node level
-	var i uint = 0
-	for ; i < nodeLevel; i++ {
+	for i := uint(0) ; i < nodeLevel; i++ {
 		// The core idea is: keep going backwards until we find a node that we can climb up
 		curr := target
-		var spanningRange uint = 0
+		var spanningRange int = 0
 		for curr.prev != nil && curr.top == nil {
 			curr = curr.prev
 			spanningRange += curr.size
@@ -278,6 +280,7 @@ func (list *SkipList) probabilityInsert(target *entry) {
 		if curr.next != nil { curr.next.prev = newAllocation }
 		curr.next = newAllocation
 		target.top = newAllocation
+
 		// just correct the sizes of new allocation and curr
 		newAllocation.size = curr.size - spanningRange
 		curr.size = spanningRange
@@ -288,143 +291,88 @@ func (list *SkipList) probabilityInsert(target *entry) {
 
 
 // DeleteRange takes two cursors and deletes all values between those cursors
-func (list *SkipList) DeleteRange(start, end uint) {
+func (list *SkipList) DeleteRange(start, end int) {
+
+	deletionSize := end - start
+
 	// locate the two entries where the cursors belong
-	entryS, cStart := list.search(start, 0)
-	entryE, cEnd   := list.search(end, 0)
+	lowerBound, start 	:= list.search(start, 0)
+	upperBound, end   	:= list.search(end, 0)
+	fmt.Printf("Cursors: %d, %d \nDeletion of: %v to %v\n", start, end, *lowerBound, *upperBound)
 
-	// since these return entries our cursors are in there are 2 cases: the two cursors span the same entry
-	// or the span a set of entries
 
-	// To illustrate deletion consider the following
-	/*
-		[] --- [] ---- []
-		[] - [] - [] - []
-	 */
-	// case where deletion range spans a set of entries
-	var deleteEntry = true
-	if entryS != entryE {
-		// to deal with partial span of an entry we simply just update the cursor values for that entry
-		if cStart > 0 {
-			entryS.size -= entryS.size - cStart
-			entryS.payload.editSize = entryS.size
-			entryS = entryS.next
-		}
+	// based off the cursor values we need to update the bounds accordingly
+	if lowerBound != upperBound {
+		if start > 0 { lowerBound.payload.editSize = start; lowerBound.size = start
+				lowerBound = lowerBound.next }
+		if end != upperBound.size { upperBound.payload.bufferStart += end
+				upperBound.payload.editSize -= end; upperBound.size -= end
+				upperBound = upperBound.prev}
+	} else { // if the lower bound does equal the upper bound then the operation is simple: split in two and return
+		// first: allocate a new node containing the upper bound information
+		newUpper := &entry{prev: upperBound, next: upperBound.next,
+						size: upperBound.size - end,
+						payload: &pieceDescriptor{
+							editSize: upperBound.size - end, bufferStart: upperBound.payload.bufferStart + end,
+							bufferSource: upperBound.payload.bufferSource},
+						top: nil, bottom: nil}
 
-		// Since we are essentially trying to delete the entire bottom row we can bubble up "offset" changes from entryS
-		// iterate from entryS -> entryE and start chomping boii
-		curr := entryS.next
-		for curr != entryE.next {
-			cop := curr.next
-			list.deleteEntry(curr)
-			curr = cop
-		}
-	// case where it spans a single entry
-	} else {
-		// 3 situations:
-		// the requested deletion range spans to the end of the range
-		// or the requested deletion range is in between a range: we deal with them independently
-		if cEnd == entryE.size { // spans to end
-			// we just need to update the size of entryS to accommodate for this :)
-			entryS.size = cStart
-			entryS.payload.editSize = cStart
-			deleteEntry = false
-		} else if cStart == 0 { // spans from start
-			entryS.size = cEnd
-			entryS.payload.bufferStart = cEnd
-			deleteEntry = false
-		} else { // spans across
-			// just split entryE into two separate pieces
-			// [cStart] -> [void] -> [cEnd]
-			split := &entry{size: cEnd, next: entryS.next, prev: entryE, top: nil, bottom: nil}
-			entryS.next = split
-			// construct an associated descriptor for the split now :)
-			split.payload = &pieceDescriptor{
-				bufferSource: entryS.payload.bufferSource, bufferStart: entryS.payload.bufferStart + cEnd,
-				editSize: cEnd}
-		}
+		// then update the lower bound information
+		lowerBound.payload.editSize = start; lowerBound.size = start
+
+		if lowerBound.next != nil { lowerBound.next.prev = newUpper }
+		lowerBound.next = newUpper
+		list.fixList(lowerBound, -deletionSize); return
 	}
 
-	list.fixList(entryS, -(end - start))
-	// I'm really sorry... I generally hate flags but yeah
-	if deleteEntry {
-		list.deleteEntry(entryS)
+	// now that the bounds have been fixed ( and if the deletion spans a single entry then performed )
+	// we simply iterate from lowerBound to upperBound and delete all the nodes :)
+	curr := lowerBound
+	lowerBoundPre := lowerBound.prev
+	for curr != upperBound.next {
+		next := curr.next
+		list.deleteEntry(curr)
+		curr = next
 	}
-
+	list.fixList(lowerBoundPre, -deletionSize)
 }
 
 
 // deleteEntry just removes an entry from a skip list
 // note: it assumes that the entry is the smallest partition (it is at the bottom)
 // furthermore it assumes all partition offsets have already been updated prior to deletion
+// this function is horrible and is just entirely if statements
 func (list *SkipList) deleteEntry(target *entry) {
+
+	// recursive edge cases
+	if target == nil { return }
 	if target.top != nil {
 		// recursively delete parent
 		list.deleteEntry(target.top)
 	}
 
+	// just connect target's next value to target's top, bottom and prev nodes
+	if target.prev != nil { target.prev.next = target.next }
+	if target.top != nil { target.top.bottom = target.next
+	} else if target.prev == nil { list.topLevel = target.next }
+	if target.bottom != nil { target.bottom.top = target.next }
+	// now connect everything to target.next :)
+	if target.next != nil {
+		target.next.prev = target.prev
+		target.next.top = target.top
+		target.next.bottom = target.bottom
 
-	// when deleting an entry there are two possible cases:
-	// the node we are deleting is at the leftmost edge of the skip list, in which me make its successor
-	// the new "big range" otherwise the predecessor inherits the span
-	if target.prev == nil {
-		// two cases: we are deleting a row where there is no suitable replacement on the same row (replacement is bottom)
-		// or the other thing ^ opposite of that where replacement is the next value
-		replacement := target.next
-		// no suitable replacement on the same row so just make the replacement the bottom
-		if target.next == nil { replacement = target.bottom }
-		if replacement == nil {return}
-
-		// now once again there are 2 cases :P; we have no reasonable parent to attach to (we connect to list.topLevel)
-		// or we just connect to out parent
-		if target.top == nil { list.topLevel = replacement; replacement.top = nil }
-
-		if target.next != nil {
-			parent := target.top
-			child := target.bottom
-			if parent != nil { parent.bottom = replacement }
-			replacement.top = parent
-			// now just insert the kid
-			if child != nil {
-				child.top = replacement
-				// if replacement had a child delete it
-				if replacement.bottom != nil {
-					replacement.bottom.top = nil
-				}
-			}
-			replacement.bottom = child
-			// shit just works aight?
-			if target.bottom != nil { replacement.size += target.size }
-			target.next.prev = replacement
+		// we now need to deal with updating entry weights
+		// note: only bother if we aren't on the bottom most layer
+		if target.bottom != nil { target.next.size += target.size }
+	} else if target.prev == nil {
+		// the node we are deleting is a sole entry in its layer so just delete the layer
+		// unless it is the bottom layer
+		if target.top == nil && target.bottom == nil { target.size = 0; target.payload = nil
+		} else {
+			if target.top != nil { target.top.bottom = target.bottom
+			} else { list.topLevel = target.bottom }
+			if target.bottom != nil { target.bottom.top = target.top }
 		}
-		replacement.prev = nil
-	} else {
-		// the other case is when there is a reasonable predecessor, to deal with this case we "merge" the spanning
-		// range of this entry into the previous entry :)
-		replacement := target.prev
-		child  		:= target.bottom
-
-		// we only bother fixing corrections if the parent is not nil
-		replacement.next = target.next
-		if target.next != nil {
-			target.next.prev = replacement
-		}
-
-		// if we aren't at the bottom layer just merge :)
-		if child != nil {
-			replacement.size += target.size
-		}
-	}
-
-
-	// more edge cases coz im bad
-	if list.topLevel.next == nil {
-		list.topLevel.size = list.documentSize
 	}
 }
-
-
-
-
-
-

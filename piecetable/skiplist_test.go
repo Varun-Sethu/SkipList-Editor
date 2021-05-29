@@ -28,7 +28,7 @@ func TestSearch(t *testing.T) {
 	// offsets of this base will be used for verification
 
 	// tests defines a map of cursors and the size of the appropriate interval they belong to (smallest interval)
-	tests := map[uint]*entry{
+	tests := map[int]*entry{
 		89: payloadBase.next.next,
 		25: payloadBase,
 		130: payloadBase.next.next.next.next.next.next,
@@ -88,7 +88,7 @@ func init() {
 	var layerTwoConnections = []*entry{listTail}
 
 	// the values we are inserting in the first layer
-	layerOne := []uint{30, 50, 10, 20, 5, 10, 5}
+	layerOne := []int{30, 50, 10, 20, 5, 10, 5}
 	for i, val := range layerOne[1:] {
 		listTail.next = &entry{size: val, next: nil, top: nil, bottom: nil, prev: listTail, payload: nil}
 		testList.documentSize += val
