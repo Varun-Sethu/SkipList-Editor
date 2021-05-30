@@ -19,7 +19,8 @@ func TestPieceTableInsertion(t *testing.T) {
 	fmt.Print("\n", table.changesTable.visualiseList(), "\n")
 	fmt.Printf("%s\n\n", table.Stringify())
 
-	table.DeleteRange(4, 32)
+	table.DeleteRange(0, 47)
+	table.Insert("hello", 0)
 
 	fmt.Print("\n", table.changesTable.visualiseList(), "\n")
 	fmt.Printf("%s\n\n", table.Stringify())

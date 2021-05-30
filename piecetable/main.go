@@ -39,8 +39,15 @@ func NewPieceTable(originalBuf string) *PieceTable {
 
 // Insert just adds a chunk of text to the piece table at the specified cursor
 func (table *PieceTable) Insert(addition string, cursor int) {
+
+	if table.changesTable.topLevel == nil {
+		// instead of inserting we create a new entry with the appropriate buffer
+		*table = *NewPieceTable(addition)
+		return
+	}
+
 	newDescriptor := &pieceDescriptor{bufferSource: changes,
-						bufferStart: table.editBuffer.Len(), editSize: len(addition)}
+		bufferStart: table.editBuffer.Len(), editSize: len(addition)}
 	table.editBuffer.WriteString(addition)
 	table.changesTable.Insert(newDescriptor, cursor)
 }
@@ -57,6 +64,8 @@ func (table *PieceTable) DeleteRange(start, end int) {
 func (table *PieceTable) Stringify() string {
 	// Identify the base
 	curr := table.changesTable.topLevel
+	if curr == nil { return "" }
+
 	for curr.bottom != nil {
 		curr = curr.bottom
 	}

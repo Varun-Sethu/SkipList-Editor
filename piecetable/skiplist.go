@@ -1,7 +1,6 @@
 package piecetable
 
 import (
-	"fmt"
 	"math/bits"
 	"math/rand"
 	"strconv"
@@ -298,7 +297,6 @@ func (list *SkipList) DeleteRange(start, end int) {
 	// locate the two entries where the cursors belong
 	lowerBound, start 	:= list.search(start, 0)
 	upperBound, end   	:= list.search(end, 0)
-	fmt.Printf("Cursors: %d, %d \nDeletion of: %v to %v\n", start, end, *lowerBound, *upperBound)
 
 
 	// based off the cursor values we need to update the bounds accordingly
@@ -340,39 +338,59 @@ func (list *SkipList) DeleteRange(start, end int) {
 
 // deleteEntry just removes an entry from a skip list
 // note: it assumes that the entry is the smallest partition (it is at the bottom)
-// furthermore it assumes all partition offsets have already been updated prior to deletion
-// this function is horrible and is just entirely if statements
+// in detail deleteEntry removes a partition by connecting its next pointer to its prev pointer
+// furthermore its prev value inherits its span
 func (list *SkipList) deleteEntry(target *entry) {
 
-	// recursive edge cases
-	if target == nil { return }
+	// recursively delete the top value
 	if target.top != nil {
-		// recursively delete parent
 		list.deleteEntry(target.top)
 	}
 
-	// just connect target's next value to target's top, bottom and prev nodes
-	if target.prev != nil { target.prev.next = target.next }
-	if target.top != nil { target.top.bottom = target.next
-	} else if target.prev == nil { list.topLevel = target.next }
-	if target.bottom != nil { target.bottom.top = target.next }
-	// now connect everything to target.next :)
-	if target.next != nil {
-		target.next.prev = target.prev
-		target.next.top = target.top
-		target.next.bottom = target.bottom
 
-		// we now need to deal with updating entry weights
-		// note: only bother if we aren't on the bottom most layer
-		if target.bottom != nil { target.next.size += target.size }
-	} else if target.prev == nil {
-		// the node we are deleting is a sole entry in its layer so just delete the layer
-		// unless it is the bottom layer
-		if target.top == nil && target.bottom == nil { target.size = 0; target.payload = nil
+	// connect the adjacent values to target.prev
+	if target.prev != nil { target.prev.next = target.next }
+	if target.next != nil { target.next.prev = target.prev }
+	if target.bottom != nil { target.bottom.top = target.prev }
+	if target.top != nil { target.top.bottom = target.prev }
+
+	// finally connect target.prev to the adjacent values
+	// 2 cases: target is not on the edge (predecessor inherits) or target is (next value inherits)
+	if target.prev != nil {
+
+		if target.bottom != nil { target.prev.size += target.size }
+		// we should have delete target's "top value" so it will always be nil :)
+		target.top = nil
+
+	} else {
+		// we are deleting something from the very edge, there are 2 cases here:
+		// no other entries exist in which we delete the row OR: the next value takes up target's position
+
+		if target.next == nil {
+			// delete row
+			list.topLevel = target.bottom
+
 		} else {
-			if target.top != nil { target.top.bottom = target.bottom
-			} else { list.topLevel = target.bottom }
-			if target.bottom != nil { target.bottom.top = target.top }
+			// allow the next value to inherent target's details
+			if target.top == nil { list.topLevel = target.next }
+			target.next.bottom = target.bottom
+			if target.bottom != nil { target.next.size += target.size; target.bottom.top = target.next }
 		}
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
